@@ -1,0 +1,81 @@
+name: Bump cask
+
+# Triggered by andyshinn/coresense after it publishes a release (stable or
+# prerelease), via a repository_dispatch of type `coresense-release` (see
+# .github/workflows/homebrew-cask.yml in that repo). The payload carries the
+# release tag and whether it was a prerelease. This workflow downloads the
+# matching universal DMG from coresense's (public) release, rewrites version +
+# sha256 in the cask, and commits with this repo's OWN GITHUB_TOKEN.
+on:
+  repository_dispatch:
+    types: [coresense-release]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: bump-cask
+  cancel-in-progress: false
+
+jobs:
+  bump:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Select target cask
+        env:
+          PRERELEASE: ${{ github.event.client_payload.prerelease }}
+        run: |
+          if [ "$PRERELEASE" = "true" ]; then
+            echo "CASK=Casks/coresense@dev.rb" >> "$GITHUB_ENV"
+          else
+            echo "CASK=Casks/coresense.rb" >> "$GITHUB_ENV"
+          fi
+
+      - name: Download release DMG from coresense
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.client_payload.tag }}
+        run: |
+          # coresense's release assets are public. The prerelease dispatch can
+          # arrive before the (large) DMG finishes uploading, so poll rather
+          # than fail on the first miss.
+          for attempt in $(seq 1 10); do
+            if gh release download "$TAG" --repo andyshinn/coresense \
+              --pattern 'CoreSense-*-universal.dmg' --dir dist --clobber; then
+              echo "Downloaded universal DMG on attempt ${attempt}."
+              exit 0
+            fi
+            echo "Universal DMG not available yet (attempt ${attempt}/10); waiting 15s…"
+            sleep 15
+          done
+          echo "CoreSense universal DMG never appeared for ${TAG}" >&2
+          exit 1
+
+      - name: Update cask
+        env:
+          TAG: ${{ github.event.client_payload.tag }}
+        run: |
+          shopt -s nullglob
+          dmgs=(dist/CoreSense-*-universal.dmg)
+          if [ ${#dmgs[@]} -eq 0 ]; then echo "No universal DMG found for $TAG"; exit 1; fi
+          node scripts/update-cask.mjs --version "${TAG#v}" --dmg "${dmgs[0]}" --cask "$CASK"
+
+      - name: Commit cask bump
+        env:
+          TAG: ${{ github.event.client_payload.tag }}
+        run: |
+          if git diff --quiet -- "$CASK"; then
+            echo "Cask already up to date for $TAG; nothing to commit."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "$CASK"
+          git commit -m "chore: bump ${CASK##*/} to ${TAG}"
+          git push
