@@ -5,8 +5,8 @@
 #   brew tap andyshinn/coresense
 #   brew install --cask coresense
 cask "coresense" do
-  version "0.0.12"
-  sha256 "3d62213fbbe13922234bb0afa7d245fc37b5e0b8ecd64affa2c2a1dd87f00d1d"
+  version "0.0.13"
+  sha256 "1b7ea09bc14ebcb0541f5f490e6d50b584a941a4bc1d41f2a2ec503be84878e1"
 
   url "https://github.com/andyshinn/coresense/releases/download/v#{version}/CoreSense-#{version}-universal.dmg"
   name "CoreSense"
